@@ -1,0 +1,30 @@
+# goswitch 示例配置文件
+# 数据库迁移: MySQL -> MySQL
+
+source:
+  type: MYSQL
+  host: "127.0.0.1"
+  port: 3306
+  database: "goswitch_source"
+  username: "root"
+  password: "1234"
+  fetch_size: 10000           # 批次读取大小
+  includes: ""                # 留空表示迁移所有表，逗号分隔指定表名（如 "users,orders"）
+  excludes: ""                # 排除的表，逗号分隔
+  table_mapper:               # 可选：表名正则映射
+    - from_pattern: "^"
+      to_value: "t_"
+
+target:
+  type: MYSQL
+  host: "127.0.0.1"
+  port: 3306
+  database: "goswitch_target"
+  username: "root"
+  password: "1234"
+  drop_target: true           # 是否先删除目标表再创建
+  table_name_case: NONE       # 表名大小写: NONE/UPPER/LOWER
+  batch_size: 10000           # 批次写入大小
+  parallel: 1                 # 并行迁移表数量，默认 1
+  commit_interval: 10         # 每N个batch提交一次事务，默认 10
+  pipeline: true             # 是否启用流水线并行模式（读写并行），默认 false
