@@ -1,0 +1,56 @@
+# 编译产物
+goswitch
+goswitch.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 配置文件（可能包含敏感信息）
+config.yml
+configs/*.yml
+!configs/*.example.yml
+
+# 日志文件
+*.log
+logs/
+
+# 测试文件
+*_test.go
+*.test
+
+# IDE配置
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+
+# 依赖目录
+vendor/
+
+# 覆盖率报告
+coverage.out
+coverage.html
+
+# 调试文件
+debug
+debug.test
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
+
+# 文档构建产物
+docs/_build/
+site/
