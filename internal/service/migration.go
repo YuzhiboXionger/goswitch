@@ -1,12 +1,14 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
 	"fmt"
 	"goswitch/internal/config"
 	"goswitch/internal/core"
 	"goswitch/pkg/util"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -16,6 +18,15 @@ import (
 
 // Version 版本号
 const Version = "1.2.0"
+
+// MigrationResult 迁移结果
+type MigrationResult struct {
+	TableName string `json:"table_name"`
+	Success   bool   `json:"success"`
+	Rows      int64  `json:"rows"`
+	Error     string `json:"error,omitempty"`
+	Duration  string `json:"duration"`
+}
 
 // MigrationService 迁移服务
 type MigrationService struct {
@@ -92,6 +103,7 @@ func (s *MigrationService) Run(ctx context.Context) error {
 	var successCount, failCount int64
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var results []MigrationResult
 	sem := make(chan struct{}, parallel) // 并发信号量
 
 	for i, srcTable := range filteredTables {
@@ -117,6 +129,9 @@ func (s *MigrationService) Run(ctx context.Context) error {
 			fmt.Printf("\n[%d/%d] ", idx+1, len(filteredTables))
 			mu.Unlock()
 
+			// 记录开始时间
+			tableStart := time.Now()
+
 			// 为每个表创建独立的 Writer
 			dstWriter := s.dstFactory.DataWriter(s.dstDB)
 
@@ -134,16 +149,30 @@ func (s *MigrationService) Run(ctx context.Context) error {
 			}
 
 			rows, err := task.Execute(table, dstTable)
-			if err != nil {
-				mu.Lock()
-				fmt.Printf("  ✗ 迁移失败: %v\n", err)
-				mu.Unlock()
-				atomic.AddInt64(&failCount, 1)
-				return
-			}
+			duration := time.Since(tableStart)
 
-			atomic.AddInt64(&totalRows, rows)
-			atomic.AddInt64(&successCount, 1)
+			mu.Lock()
+			if err != nil {
+				fmt.Printf("  ✗ 迁移失败: %v\n", err)
+				results = append(results, MigrationResult{
+					TableName: table,
+					Success:   false,
+					Rows:      0,
+					Error:     err.Error(),
+					Duration:  util.FormatDuration(duration),
+				})
+				atomic.AddInt64(&failCount, 1)
+			} else {
+				results = append(results, MigrationResult{
+					TableName: table,
+					Success:   true,
+					Rows:      rows,
+					Duration:  util.FormatDuration(duration),
+				})
+				atomic.AddInt64(&totalRows, rows)
+				atomic.AddInt64(&successCount, 1)
+			}
+			mu.Unlock()
 		}(i, srcTable)
 	}
 
@@ -156,6 +185,16 @@ func (s *MigrationService) Run(ctx context.Context) error {
 	finalRows := atomic.LoadInt64(&totalRows)
 
 	s.printSummary(elapsed, finalSuccess, finalFail, finalRows, len(filteredTables), parallel)
+
+	// 5. 生成迁移报告
+	if finalFail > 0 {
+		reportFile := fmt.Sprintf("migration_report_%s.txt", time.Now().Format("20060102_150405"))
+		if err := s.generateReport(reportFile, results, elapsed); err != nil {
+			fmt.Printf("\n⚠ 生成报告失败: %v\n", err)
+		} else {
+			fmt.Printf("\n📄 迁移报告已生成: %s\n", reportFile)
+		}
+	}
 
 	return nil
 }
@@ -523,4 +562,81 @@ func formatRowCount(count int64) string {
 		return fmt.Sprintf("%.1fK", float64(count)/1000)
 	}
 	return fmt.Sprintf("%.1fM", float64(count)/1000000)
+}
+
+// generateReport 生成迁移报告
+func (s *MigrationService) generateReport(filename string, results []MigrationResult, elapsed time.Duration) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return fmt.Errorf("failed to create report file: %w", err)
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	defer writer.Flush()
+
+	// 写入报告头
+	writer.WriteString("╔════════════════════════════════════════════════════════════╗\n")
+	writer.WriteString("║                    迁移报告                               ║\n")
+	writer.WriteString("╚════════════════════════════════════════════════════════════╝\n\n")
+
+	// 写入基本信息
+	writer.WriteString("基本信息:\n")
+	writer.WriteString(fmt.Sprintf("  生成时间:   %s\n", time.Now().Format("2006-01-02 15:04:05")))
+	writer.WriteString(fmt.Sprintf("  总耗时:     %s\n", util.FormatDuration(elapsed)))
+	writer.WriteString(fmt.Sprintf("  源端:       %s@%s:%d/%s\n", s.config.Source.Username, s.config.Source.Host, s.config.Source.Port, s.config.Source.Database))
+	writer.WriteString(fmt.Sprintf("  目标端:     %s@%s:%d/%s\n", s.config.Target.Username, s.config.Target.Host, s.config.Target.Port, s.config.Target.Database))
+	writer.WriteString("\n")
+
+	// 统计成功和失败
+	var successCount, failCount int
+	for _, r := range results {
+		if r.Success {
+			successCount++
+		} else {
+			failCount++
+		}
+	}
+
+	writer.WriteString("迁移统计:\n")
+	writer.WriteString(fmt.Sprintf("  总表数:     %d\n", len(results)))
+	writer.WriteString(fmt.Sprintf("  成功:       %d\n", successCount))
+	writer.WriteString(fmt.Sprintf("  失败:       %d\n", failCount))
+	writer.WriteString("\n")
+
+	// 写入失败详情
+	if failCount > 0 {
+		writer.WriteString("失败详情:\n")
+		writer.WriteString(strings.Repeat("─", 60) + "\n")
+
+		for _, r := range results {
+			if !r.Success {
+				writer.WriteString(fmt.Sprintf("表名:   %s\n", r.TableName))
+				writer.WriteString(fmt.Sprintf("错误:   %s\n", r.Error))
+				writer.WriteString(fmt.Sprintf("耗时:   %s\n", r.Duration))
+				writer.WriteString(strings.Repeat("─", 60) + "\n")
+			}
+		}
+		writer.WriteString("\n")
+	}
+
+	// 写入所有表的迁移结果
+	writer.WriteString("所有表迁移结果:\n")
+	writer.WriteString(strings.Repeat("─", 60) + "\n")
+	writer.WriteString(fmt.Sprintf("%-40s %-8s %-12s %-10s\n", "表名", "状态", "行数", "耗时"))
+	writer.WriteString(strings.Repeat("─", 60) + "\n")
+
+	for _, r := range results {
+		status := "✓ 成功"
+		if !r.Success {
+			status = "✗ 失败"
+		}
+		rowsStr := formatRowCount(r.Rows)
+		writer.WriteString(fmt.Sprintf("%-40s %-8s %-12s %-10s\n", r.TableName, status, rowsStr, r.Duration))
+	}
+
+	writer.WriteString("\n")
+	writer.WriteString("报告结束\n")
+
+	return nil
 }

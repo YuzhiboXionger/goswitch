@@ -6,6 +6,8 @@
 - [安装方法](#安装方法)
 - [配置说明](#配置说明)
 - [使用示例](#使用示例)
+- [命令行参数](#命令行参数)
+- [输出说明](#输出说明)
 - [常见问题](#常见问题)
 
 ---
@@ -27,7 +29,14 @@ cp configs/config.example.yml config.yml
 ### 3. 执行迁移
 
 ```bash
+# Windows
+goswitch.exe run -c config.yml
+
+# Linux/Mac
 ./goswitch run -c config.yml
+
+# 输出到日志文件
+./goswitch run -c config.yml -l migration.log
 ```
 
 ---
@@ -36,7 +45,7 @@ cp configs/config.example.yml config.yml
 
 ### 方式一：直接使用编译好的文件
 
-项目根目录的 `goswitch.exe`（约 9MB）是单文件可执行程序，无需安装任何依赖。
+项目根目录的 `goswitch.exe`（Windows）或 `goswitch`（Linux）是单文件可执行程序，无需安装任何依赖。
 
 ### 方式二：从源码编译
 
@@ -54,18 +63,28 @@ cd goswitch
 # 2. 下载依赖
 go mod tidy
 
-# 3. 编译
+# 3. 编译当前平台
 go build -o goswitch.exe ./cmd/goswitch/
 
-# Linux/Mac 编译
-go build -o goswitch ./cmd/goswitch/
+# 4. 交叉编译 Linux 版本
+GOOS=linux GOARCH=amd64 go build -o goswitch ./cmd/goswitch/
 ```
 
 ---
 
 ## 配置说明
 
-配置文件使用 YAML 格式，包含三个部分：`source`（源端）、`target`（目标端）。
+配置文件使用 YAML 格式，包含两个部分：`source`（源端）、`target`（目标端）。
+
+### 支持的数据库
+
+| 数据库 | 类型标识 | 默认端口 |
+|--------|----------|----------|
+| MySQL | `MYSQL` | 3306 |
+| PostgreSQL | `POSTGRESQL` | 5432 |
+| Oracle | `ORACLE` | 1521 |
+
+支持任意组合的跨数据库迁移，如 MySQL → PostgreSQL、Oracle → MySQL 等。
 
 ### 完整配置示例
 
@@ -75,12 +94,14 @@ go build -o goswitch ./cmd/goswitch/
 # ============================================================
 source:
   # 数据库类型（必填）
+  # 支持: MYSQL, POSTGRESQL, ORACLE
   type: MYSQL
 
   # 主机地址（必填）
   host: "127.0.0.1"
 
-  # 端口号（可选，默认 3306）
+  # 端口号（可选）
+  # MySQL: 3306, PostgreSQL: 5432, Oracle: 1521
   port: 3306
 
   # 数据库名（必填）
@@ -117,19 +138,20 @@ source:
 # ============================================================
 target:
   # 数据库类型（必填）
-  type: MYSQL
+  # 支持: MYSQL, POSTGRESQL, ORACLE
+  type: POSTGRESQL
 
   # 主机地址（必填）
   host: "127.0.0.1"
 
-  # 端口号（可选，默认 3306）
-  port: 3306
+  # 端口号（可选）
+  port: 5432
 
   # 数据库名（必填）
   database: "target_db"
 
   # 用户名（必填）
-  username: "root"
+  username: "postgres"
 
   # 密码（可选）
   password: "123456"
@@ -147,6 +169,18 @@ target:
 
   # 写入批次大小（可选，默认 10000）
   batch_size: 10000
+
+  # 并行迁移表数量（可选，默认 1）
+  # 多表同时迁移，提高整体速度
+  parallel: 1
+
+  # 事务提交间隔（可选，默认 10）
+  # 每 N 个批次提交一次事务
+  commit_interval: 10
+
+  # 是否启用流水线模式（可选，默认 false）
+  # 读写并行，提高单表迁移速度
+  pipeline: false
 ```
 
 ### 配置参数详解
@@ -155,9 +189,9 @@ target:
 
 | 参数 | 必填 | 类型 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| type | ✅ | string | - | 数据库类型，目前支持 `MYSQL` |
+| type | ✅ | string | - | 数据库类型：`MYSQL`, `POSTGRESQL`, `ORACLE` |
 | host | ✅ | string | - | 数据库主机地址 |
-| port | ❌ | int | 3306 | 数据库端口 |
+| port | ❌ | int | 自动 | 数据库端口（根据类型自动判断） |
 | database | ✅ | string | - | 数据库名称 |
 | username | ✅ | string | - | 登录用户名 |
 | password | ❌ | string | "" | 登录密码 |
@@ -170,23 +204,24 @@ target:
 
 | 参数 | 必填 | 类型 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| type | ✅ | string | - | 数据库类型，目前支持 `MYSQL` |
+| type | ✅ | string | - | 数据库类型：`MYSQL`, `POSTGRESQL`, `ORACLE` |
 | host | ✅ | string | - | 数据库主机地址 |
-| port | ❌ | int | 3306 | 数据库端口 |
+| port | ❌ | int | 自动 | 数据库端口 |
 | database | ✅ | string | - | 数据库名称 |
 | username | ✅ | string | - | 登录用户名 |
 | password | ❌ | string | "" | 登录密码 |
 | drop_target | ❌ | bool | false | 是否先删除再创建 |
 | table_name_case | ❌ | string | NONE | 表名大小写转换 |
 | batch_size | ❌ | int | 10000 | 写入批次大小 |
+| parallel | ❌ | int | 1 | 并行迁移表数量 |
+| commit_interval | ❌ | int | 10 | 事务提交间隔 |
+| pipeline | ❌ | bool | false | 是否启用流水线模式 |
 
 ---
 
 ## 使用示例
 
-### 示例 1：迁移所有表
-
-**场景**：将源数据库的所有表迁移到目标数据库
+### 示例 1：MySQL → PostgreSQL 迁移
 
 ```yaml
 source:
@@ -198,38 +233,32 @@ source:
   password: "password123"
 
 target:
-  type: MYSQL
+  type: POSTGRESQL
   host: "192.168.1.200"
-  port: 3306
+  port: 5432
   database: "backup"
-  username: "root"
+  username: "postgres"
   password: "password456"
   drop_target: true
 ```
 
-执行：
-```bash
-./goswitch run -c config.yml
-```
-
 ---
 
-### 示例 2：只迁移指定表
-
-**场景**：只迁移 `users` 和 `orders` 两张表
+### 示例 2：Oracle → MySQL 迁移
 
 ```yaml
 source:
-  type: MYSQL
-  host: "127.0.0.1"
-  database: "source_db"
-  username: "root"
-  password: "123456"
-  includes: "users,orders"       # 指定表名
+  type: ORACLE
+  host: "10.174.18.36"
+  port: 1521
+  database: "ORCL"
+  username: "system"
+  password: "oracle123"
 
 target:
   type: MYSQL
   host: "127.0.0.1"
+  port: 3306
   database: "target_db"
   username: "root"
   password: "123456"
@@ -238,9 +267,29 @@ target:
 
 ---
 
-### 示例 3：排除某些表
+### 示例 3：只迁移指定表
 
-**场景**：迁移所有表，但排除以 `tmp_` 和 `test_` 开头的表
+```yaml
+source:
+  type: MYSQL
+  host: "127.0.0.1"
+  database: "source_db"
+  username: "root"
+  password: "123456"
+  includes: "users,orders,products"       # 指定表名
+
+target:
+  type: POSTGRESQL
+  host: "127.0.0.1"
+  database: "target_db"
+  username: "postgres"
+  password: "123456"
+  drop_target: true
+```
+
+---
+
+### 示例 4：排除某些表
 
 ```yaml
 source:
@@ -261,9 +310,7 @@ target:
 
 ---
 
-### 示例 4：添加表名前缀
-
-**场景**：给所有表添加 `t_` 前缀（如 `users` → `t_users`）
+### 示例 5：添加表名前缀
 
 ```yaml
 source:
@@ -277,35 +324,10 @@ source:
       to_value: "t_"
 
 target:
-  type: MYSQL
+  type: POSTGRESQL
   host: "127.0.0.1"
   database: "target_db"
-  username: "root"
-  password: "123456"
-```
-
----
-
-### 示例 5：替换表名前缀
-
-**场景**：将 `old_` 前缀替换为 `new_`（如 `old_users` → `new_users`）
-
-```yaml
-source:
-  type: MYSQL
-  host: "127.0.0.1"
-  database: "source_db"
-  username: "root"
-  password: "123456"
-  table_mapper:
-    - from_pattern: "^old_"
-      to_value: "new_"
-
-target:
-  type: MYSQL
-  host: "127.0.0.1"
-  database: "target_db"
-  username: "root"
+  username: "postgres"
   password: "123456"
 ```
 
@@ -313,7 +335,26 @@ target:
 
 ### 示例 6：表名转大写
 
-**场景**：迁移时将表名转为大写（如 `users` → `USERS`）
+```yaml
+source:
+  type: MYSQL
+  host: "127.0.0.1"
+  database: "source_db"
+  username: "root"
+  password: "123456"
+
+target:
+  type: POSTGRESQL
+  host: "127.0.0.1"
+  database: "target_db"
+  username: "postgres"
+  password: "123456"
+  table_name_case: UPPER         # 转大写
+```
+
+---
+
+### 示例 7：并行迁移优化
 
 ```yaml
 source:
@@ -324,44 +365,18 @@ source:
   password: "123456"
 
 target:
-  type: MYSQL
+  type: POSTGRESQL
   host: "127.0.0.1"
   database: "target_db"
-  username: "root"
+  username: "postgres"
   password: "123456"
-  table_name_case: UPPER         # 转大写
-```
-
----
-
-### 示例 7：跨服务器迁移
-
-**场景**：从本地 MySQL 迁移到远程服务器
-
-```yaml
-source:
-  type: MYSQL
-  host: "127.0.0.1"
-  port: 3306
-  database: "local_db"
-  username: "root"
-  password: ""
-
-target:
-  type: MYSQL
-  host: "47.100.100.100"
-  port: 3306
-  database: "remote_db"
-  username: "admin"
-  password: "SecurePass123!"
-  drop_target: true
+  parallel: 4                    # 4个表同时迁移
+  pipeline: true                 # 启用流水线模式
 ```
 
 ---
 
 ### 示例 8：大批量数据优化
-
-**场景**：迁移大表时调整批次大小
 
 ```yaml
 source:
@@ -373,12 +388,35 @@ source:
   fetch_size: 50000              # 增大读取批次
 
 target:
+  type: POSTGRESQL
+  host: "127.0.0.1"
+  database: "target_db"
+  username: "postgres"
+  password: "123456"
+  batch_size: 50000              # 增大写入批次
+  commit_interval: 20            # 增大事务间隔
+```
+
+---
+
+### 示例 9：Oracle RAC 连接
+
+```yaml
+source:
+  type: ORACLE
+  host: "10.174.18.36"
+  port: 1521
+  database: "ORCL"
+  username: "system"
+  password: "oracle#123"         # 特殊字符会自动URL编码
+
+target:
   type: MYSQL
   host: "127.0.0.1"
+  port: 3306
   database: "target_db"
   username: "root"
   password: "123456"
-  batch_size: 50000              # 增大写入批次
 ```
 
 ---
@@ -388,8 +426,15 @@ target:
 ### 基本用法
 
 ```bash
-goswitch run -c <配置文件路径>
+goswitch run -c <配置文件路径> [选项]
 ```
+
+### 参数列表
+
+| 参数 | 简写 | 必填 | 说明 |
+|------|------|------|------|
+| `--config` | `-c` | ✅ | 配置文件路径 |
+| `--log-file` | `-l` | ❌ | 日志文件路径 |
 
 ### 帮助信息
 
@@ -399,44 +444,113 @@ goswitch --help
 
 # 查看 run 命令帮助
 goswitch run --help
+
+# 查看版本
+goswitch version
 ```
 
-### 输出示例
+---
 
-执行迁移时的输出：
+## 输出说明
+
+### 迁移过程输出
 
 ```
-✓ 源端数据库连接成功
-✓ 目标端数据库连接成功
-============================================================
-goswitch - 数据库迁移工具
-源端: root@127.0.0.1:3306/source_db
-目标: root@127.0.0.1:3306/target_db
-============================================================
+╔════════════════════════════════════════════════════════════╗
+║                    goswitch v1.2.0                        ║
+╚════════════════════════════════════════════════════════════╝
 
-待迁移表数量: 3
+╔════════════════════════════════════════════════════════════╗
+║                      配置信息                             ║
+╠════════════════════════════════════════════════════════════╣
+║  源端配置:                                                ║
+║    类型:     MYSQL                                        ║
+║    地址:     127.0.0.1:3306                                ║
+║    数据库:   source_db                                     ║
+║  ...                                                       ║
+╚════════════════════════════════════════════════════════════╝
 
-[1/3] 开始迁移: users -> t_users
-  ✓ 删除目标表: t_users
-  ✓ 创建目标表: t_users
-[2.5s] t_users: 10000 rows ✓ - 2.5s
+╔════════════════════════════════════════════════════════════╗
+║                      表信息预览                           ║
+╠════════════════════════════════════════════════════════════╣
+║  序号 表名                           列数   数据量          ║
+║  ──────────────────────────────────────────────────────── ║
+║  1    users                          8      15.2K          ║
+║  ...                                                       ║
+╚════════════════════════════════════════════════════════════╝
 
-[2/3] 开始迁移: orders -> t_orders
-  ✓ 删除目标表: t_orders
-  ✓ 创建目标表: t_orders
-[5.2s] t_orders: 50000 rows ✓ - 2.7s
+[1/3] 开始迁移: users
+  [████████████████░░░░░░░░░░░░░░] 53.2% | 8.1K 行 | 2.5K 行/秒 | 已用: 3.2s | ETA: 2.8s
+  ✓ users 迁移完成
+    总行数:   15.2K
+    总耗时:   6.1s
+    平均速度: 2.5K 行/秒
+    数据量:   ~1.5 MB
+```
 
-[3/3] 开始迁移: products -> t_products
-  ✓ 删除目标表: t_products
-  ✓ 创建目标表: t_products
-[7.8s] t_products: 5000 rows ✓ - 2.6s
+### 迁移完成汇总
 
-============================================================
-迁移完成!
-  耗时: 8s
-  成功: 3 个表
-  总行数: 65000
-============================================================
+```
+╔════════════════════════════════════════════════════════════╗
+║                    迁移完成汇总                           ║
+╠════════════════════════════════════════════════════════════╣
+║  基本信息:                                                ║
+║    总耗时:     1h32m15s                                   ║
+║    总表数:     3                                          ║
+║    成功:       3                                          ║
+║    并行度:     1                                          ║
+║                                                           ║
+║  性能统计:                                                ║
+║    总行数:     188.3M                                     ║
+║    平均速度:   34.1K 行/秒                                ║
+║    吞吐量:     3.2 MB/s                                   ║
+║    数据量:     ~17.7 GB                                   ║
+║                                                           ║
+║  资源使用:                                                ║
+║    批次大小:   10000                                      ║
+║    写入批次:   10000                                      ║
+║    事务间隔:   10                                         ║
+║    流水线:     false                                      ║
+║    内存使用:   45.2 MB                                    ║
+║    GC次数:     1247                                       ║
+║                                                           ║
+╚════════════════════════════════════════════════════════════╝
+```
+
+### 迁移失败报告
+
+当有表迁移失败时，会自动生成报告文件 `migration_report_日期_时间.txt`：
+
+```
+╔════════════════════════════════════════════════════════════╗
+║                    迁移报告                               ║
+╚════════════════════════════════════════════════════════════╝
+
+基本信息:
+  生成时间:   2026-09-08 15:04:05
+  总耗时:     4h32m15s
+  源端:       root@127.0.0.1:3306/source_db
+  目标端:     postgres@127.0.0.1:5432/target_db
+
+迁移统计:
+  总表数:     3
+  成功:       2
+  失败:       1
+
+失败详情:
+────────────────────────────────────────────────────────────
+表名:   RPT_ZQYY_VI_ZB_RESULT_DAY
+错误:   failed to write: pq: duplicate key value violates unique constraint
+耗时:   2h15m30s
+────────────────────────────────────────────────────────────
+
+所有表迁移结果:
+────────────────────────────────────────────────────────────
+表名                                     状态     行数         耗时
+────────────────────────────────────────────────────────────
+users                                    ✓ 成功   15.2K        6.1s
+orders                                   ✓ 成功   98.5K        12.3s
+RPT_ZQYY_VI_ZB_RESULT_DAY               ✗ 失败   0            2h15m
 ```
 
 ---
@@ -451,7 +565,7 @@ failed to connect source database: dial tcp 127.0.0.1:3306: connectex: No connec
 ```
 
 **解决方案**：
-1. 检查 MySQL 服务是否启动
+1. 检查数据库服务是否启动
 2. 检查主机和端口是否正确
 3. 检查防火墙是否允许连接
 4. 检查用户是否有远程访问权限
@@ -469,12 +583,29 @@ failed to list tables: command denied to user 'xxx'@'xxx' for table 'xxx'
 
 源端用户需要的权限：
 ```sql
+-- MySQL
 GRANT SELECT ON source_db.* TO 'user'@'%';
+
+-- PostgreSQL
+GRANT CONNECT ON DATABASE source_db TO user;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO user;
+
+-- Oracle
+GRANT SELECT ANY TABLE TO user;
 ```
 
 目标端用户需要的权限：
 ```sql
+-- MySQL
 GRANT ALL PRIVILEGES ON target_db.* TO 'user'@'%';
+
+-- PostgreSQL
+GRANT ALL PRIVILEGES ON DATABASE target_db TO user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO user;
+
+-- Oracle
+GRANT CREATE ANY TABLE TO user;
+GRANT INSERT ANY TABLE TO user;
 ```
 
 ---
@@ -517,19 +648,64 @@ target:
 
 ---
 
-### Q6: 如何只迁移表结构
+### Q6: 迁移速度慢
 
-目前版本不支持只迁移结构。后续版本会添加此功能。
+**解决方案**：
+
+1. **增大批次大小**：
+   ```yaml
+   source:
+     fetch_size: 50000
+   target:
+     batch_size: 50000
+   ```
+
+2. **启用并行迁移**：
+   ```yaml
+   target:
+     parallel: 4
+   ```
+
+3. **启用流水线模式**：
+   ```yaml
+   target:
+     pipeline: true
+   ```
 
 ---
 
-### Q7: 支持哪些 MySQL 版本
+### Q7: Oracle 特殊字符密码
 
-支持 MySQL 5.7 及以上版本。
+如果 Oracle 密码包含 `#`, `@`, `/` 等特殊字符，程序会自动进行 URL 编码，无需手动处理。
 
 ---
 
-### Q8: 如何迁移视图
+### Q8: 如何查看迁移日志
+
+使用 `-l` 参数输出到日志文件：
+```bash
+./goswitch run -c config.yml -l migration.log
+```
+
+日志文件包含：
+- 配置信息
+- 连接信息
+- 每个表的迁移结果
+- 错误信息
+
+---
+
+### Q9: 支持哪些数据库版本
+
+| 数据库 | 最低版本 |
+|--------|----------|
+| MySQL | 5.7+ |
+| PostgreSQL | 10+ |
+| Oracle | 12c+ |
+
+---
+
+### Q10: 如何迁移视图
 
 目前版本只迁移表（BASE TABLE），不迁移视图。后续版本会添加视图支持。
 
@@ -542,6 +718,21 @@ target:
 ---
 
 ## 更新日志
+
+### v1.2.0 (2026-09-08)
+- 新增 Oracle 数据库支持
+- 新增跨数据库迁移（MySQL ↔ PostgreSQL ↔ Oracle）
+- 新增日志文件输出功能
+- 新增迁移失败报告生成
+- 新增实时进度条显示
+- 新增迁移统计信息
+- 优化终端兼容性
+- 优化输出格式
+
+### v1.1.0 (2024-08-15)
+- 新增 PostgreSQL 数据库支持
+- 新增并行迁移功能
+- 新增流水线模式
 
 ### v1.0.0 (2024-08-10)
 - 初始版本
