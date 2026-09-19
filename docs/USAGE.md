@@ -8,6 +8,7 @@
 - [使用示例](#使用示例)
 - [命令行参数](#命令行参数)
 - [输出说明](#输出说明)
+- [MongoDB 迁移说明](#mongodb-迁移说明)
 - [常见问题](#常见问题)
 
 ---
@@ -23,7 +24,11 @@
 复制示例配置并修改：
 
 ```bash
+# 关系型数据库
 cp configs/config.example.yml config.yml
+
+# MongoDB
+cp configs/config.mongodb.example.yml config.yml
 ```
 
 ### 3. 执行迁移
@@ -35,8 +40,8 @@ goswitch.exe run -c config.yml
 # Linux/Mac
 ./goswitch run -c config.yml
 
-# 输出到日志文件
-./goswitch run -c config.yml -l migration.log # 同时获得日志和失败表的报告
+# 输出到日志文件（同时获得日志和失败表的报告）
+./goswitch run -c config.yml -l migration.log
 ```
 
 ---
@@ -83,8 +88,9 @@ $env:GOOS="linux"; $env:GOARCH="amd64"; go build -o goswitch ./cmd/goswitch/
 | MySQL | `MYSQL` | 3306 |
 | PostgreSQL | `POSTGRESQL` | 5432 |
 | Oracle | `ORACLE` | 1521 |
+| MongoDB | `MONGODB` | 27017 |
 
-支持任意组合的跨数据库迁移，如 MySQL → PostgreSQL、Oracle → MySQL 等。
+支持任意组合的跨数据库迁移，如 MySQL → PostgreSQL、Oracle → MySQL、MySQL → MongoDB 等。
 
 ### 完整配置示例
 
@@ -94,20 +100,20 @@ $env:GOOS="linux"; $env:GOARCH="amd64"; go build -o goswitch ./cmd/goswitch/
 # ============================================================
 source:
   # 数据库类型（必填）
-  # 支持: MYSQL, POSTGRESQL, ORACLE
+  # 支持: MYSQL, POSTGRESQL, ORACLE, MONGODB
   type: MYSQL
 
   # 主机地址（必填）
   host: "127.0.0.1"
 
   # 端口号（可选）
-  # MySQL: 3306, PostgreSQL: 5432, Oracle: 1521
+  # MySQL: 3306, PostgreSQL: 5432, Oracle: 1521, MongoDB: 27017
   port: 3306
 
   # 数据库名（必填）
   database: "source_db"
 
-  # 用户名（必填）
+  # 用户名（必填，MongoDB 无认证时可留空）
   username: "root"
 
   # 密码（可选）
@@ -138,7 +144,7 @@ source:
 # ============================================================
 target:
   # 数据库类型（必填）
-  # 支持: MYSQL, POSTGRESQL, ORACLE
+  # 支持: MYSQL, POSTGRESQL, ORACLE, MONGODB
   type: POSTGRESQL
 
   # 主机地址（必填）
@@ -150,7 +156,7 @@ target:
   # 数据库名（必填）
   database: "target_db"
 
-  # 用户名（必填）
+  # 用户名（必填，MongoDB 无认证时可留空）
   username: "postgres"
 
   # 密码（可选）
@@ -189,11 +195,11 @@ target:
 
 | 参数 | 必填 | 类型 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| type | ✅ | string | - | 数据库类型：`MYSQL`, `POSTGRESQL`, `ORACLE` |
+| type | ✅ | string | - | 数据库类型：`MYSQL`, `POSTGRESQL`, `ORACLE`, `MONGODB` |
 | host | ✅ | string | - | 数据库主机地址 |
 | port | ❌ | int | 自动 | 数据库端口（根据类型自动判断） |
 | database | ✅ | string | - | 数据库名称 |
-| username | ✅ | string | - | 登录用户名 |
+| username | ✅* | string | - | 登录用户名（MongoDB 无认证时可留空） |
 | password | ❌ | string | "" | 登录密码 |
 | fetch_size | ❌ | int | 10000 | 每次读取的行数 |
 | includes | ❌ | string | "" | 包含的表名，逗号分隔 |
@@ -204,11 +210,11 @@ target:
 
 | 参数 | 必填 | 类型 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| type | ✅ | string | - | 数据库类型：`MYSQL`, `POSTGRESQL`, `ORACLE` |
+| type | ✅ | string | - | 数据库类型：`MYSQL`, `POSTGRESQL`, `ORACLE`, `MONGODB` |
 | host | ✅ | string | - | 数据库主机地址 |
 | port | ❌ | int | 自动 | 数据库端口 |
 | database | ✅ | string | - | 数据库名称 |
-| username | ✅ | string | - | 登录用户名 |
+| username | ✅* | string | - | 登录用户名（MongoDB 无认证时可留空） |
 | password | ❌ | string | "" | 登录密码 |
 | drop_target | ❌ | bool | false | 是否先删除再创建 |
 | table_name_case | ❌ | string | NONE | 表名大小写转换 |
@@ -267,7 +273,55 @@ target:
 
 ---
 
-### 示例 3：只迁移指定表
+### 示例 3：MySQL → MongoDB 迁移
+
+```yaml
+source:
+  type: MYSQL
+  host: "127.0.0.1"
+  port: 3306
+  database: "source_db"
+  username: "root"
+  password: "123456"
+
+target:
+  type: MONGODB
+  host: "127.0.0.1"
+  port: 27017
+  database: "target_db"
+  username: ""                # MongoDB 无认证时留空
+  password: ""
+  drop_target: true
+  batch_size: 5000
+  parallel: 4
+```
+
+---
+
+### 示例 4：MongoDB → PostgreSQL 迁移
+
+```yaml
+source:
+  type: MONGODB
+  host: "127.0.0.1"
+  port: 27017
+  database: "source_db"
+  username: ""
+  password: ""
+
+target:
+  type: POSTGRESQL
+  host: "127.0.0.1"
+  port: 5432
+  database: "target_db"
+  username: "postgres"
+  password: "123456"
+  drop_target: true
+```
+
+---
+
+### 示例 5：只迁移指定表
 
 ```yaml
 source:
@@ -289,7 +343,7 @@ target:
 
 ---
 
-### 示例 4：排除某些表
+### 示例 6：排除某些表
 
 ```yaml
 source:
@@ -310,7 +364,7 @@ target:
 
 ---
 
-### 示例 5：添加表名前缀
+### 示例 7：添加表名前缀
 
 ```yaml
 source:
@@ -333,7 +387,7 @@ target:
 
 ---
 
-### 示例 6：表名转大写
+### 示例 8：表名转大写
 
 ```yaml
 source:
@@ -354,7 +408,7 @@ target:
 
 ---
 
-### 示例 7：并行迁移优化
+### 示例 9：并行迁移优化
 
 ```yaml
 source:
@@ -376,7 +430,7 @@ target:
 
 ---
 
-### 示例 8：大批量数据优化
+### 示例 10：大批量数据优化
 
 ```yaml
 source:
@@ -399,7 +453,7 @@ target:
 
 ---
 
-### 示例 9：Oracle RAC 连接
+### 示例 11：Oracle RAC 连接
 
 ```yaml
 source:
@@ -417,6 +471,28 @@ target:
   database: "target_db"
   username: "root"
   password: "123456"
+```
+
+---
+
+### 示例 12：MongoDB 认证连接
+
+```yaml
+source:
+  type: MYSQL
+  host: "127.0.0.1"
+  database: "source_db"
+  username: "root"
+  password: "123456"
+
+target:
+  type: MONGODB
+  host: "127.0.0.1"
+  port: 27017
+  database: "target_db"
+  username: "admin"              # MongoDB 认证用户
+  password: "mongo_password"     # MongoDB 认证密码
+  drop_target: true
 ```
 
 ---
@@ -457,7 +533,7 @@ goswitch version
 
 ```
 ╔════════════════════════════════════════════════════════════╗
-║                    goswitch v1.2.0                        ║
+║                    goswitch v1.3.0                        ║
 ╚════════════════════════════════════════════════════════════╝
 
 ╔════════════════════════════════════════════════════════════╗
@@ -555,6 +631,61 @@ RPT_ZQYY_VI_ZB_RESULT_DAY               ✗ 失败   0            2h15m
 
 ---
 
+## MongoDB 迁移说明
+
+### 概念映射
+
+| 关系型数据库 | MongoDB | 说明 |
+|---|---|---|
+| database | database | 相同概念 |
+| table | collection | 集合即表 |
+| column | field | 自动采样文档推断 |
+| primary key | `_id` | MongoDB 固定主键 |
+| row | document | 文档即行 |
+| INSERT | InsertMany | 批量写入 |
+| TRUNCATE | DeleteMany({}) | 清空集合 |
+| DROP | collection.Drop() | 删除集合 |
+
+### Schema 推断
+
+从 MongoDB 迁移出时（MongoDB → 关系型数据库），goswitch 会自动采样集合中的文档来推断字段名和类型：
+
+- 采样最多 100 条文档
+- 自动识别字段类型（String、Int、Bool、ObjectId 等）
+- `_id` 字段自动作为主键
+- 字段按名称字母顺序排列
+
+### 嵌套文档处理
+
+MongoDB 文档中的嵌套对象和数组会被序列化为 **JSON 字符串** 存储到目标数据库：
+
+```json
+// MongoDB 原始文档
+{
+  "_id": "507f1f77bcf86cd799439011",
+  "name": "Alice",
+  "address": {
+    "city": "Beijing",
+    "zip": "100000"
+  },
+  "tags": ["admin", "user"]
+}
+
+// 迁移到 PostgreSQL 后
+| _id                    | name  | address                              | tags              |
+|------------------------|-------|--------------------------------------|-------------------|
+| 507f1f77bcf86cd799439011 | Alice | {"city":"Beijing","zip":"100000"}   | ["admin","user"]  |
+```
+
+### MongoDB 配置注意事项
+
+1. **认证模式**：MongoDB 支持无认证连接，`username` 和 `password` 可以留空
+2. **集合自动创建**：目标端的集合会根据源端表名自动创建，无需手动操作
+3. **数据类型**：ObjectId 会转为 24 位十六进制字符串
+4. **批量大小**：建议 MongoDB 的 `batch_size` 设置为 5000（比关系型数据库小一些）
+
+---
+
 ## 常见问题
 
 ### Q1: 连接数据库失败
@@ -592,6 +723,10 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO user;
 
 -- Oracle
 GRANT SELECT ANY TABLE TO user;
+
+-- MongoDB
+// 只需 read 权限
+db.grantRolesToUser("user", [{ role: "read", db: "source_db" }])
 ```
 
 目标端用户需要的权限：
@@ -606,6 +741,11 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO user;
 -- Oracle
 GRANT CREATE ANY TABLE TO user;
 GRANT INSERT ANY TABLE TO user;
+GRANT UNLIMITED TABLESPACE TO user;   -- 避免 ORA-01950 错误
+
+-- MongoDB
+// 需要 readWrite 权限
+db.grantRolesToUser("user", [{ role: "readWrite", db: "target_db" }])
 ```
 
 ---
@@ -666,7 +806,7 @@ target:
      parallel: 4
    ```
 
-3. **启用流水线模式**：
+3. **启用流水线模式**（仅关系型数据库）：
    ```yaml
    target:
      pipeline: true
@@ -674,13 +814,31 @@ target:
 
 ---
 
-### Q7: Oracle 特殊字符密码
+### Q7: Oracle ORA-01950 错误
+
+**错误信息**：
+```
+ORA-01950: no privileges on tablespace 'USERS'
+```
+
+**解决方案**：
+
+用 DBA 账户授权：
+```sql
+GRANT UNLIMITED TABLESPACE TO user;
+-- 或
+ALTER USER user QUOTA UNLIMITED ON USERS;
+```
+
+---
+
+### Q8: Oracle 特殊字符密码
 
 如果 Oracle 密码包含 `#`, `@`, `/` 等特殊字符，程序会自动进行 URL 编码，无需手动处理。
 
 ---
 
-### Q8: 如何查看迁移日志
+### Q9: 如何查看迁移日志
 
 使用 `-l` 参数输出到日志文件：
 ```bash
@@ -695,17 +853,39 @@ target:
 
 ---
 
-### Q9: 支持哪些数据库版本
+### Q10: 支持哪些数据库版本
 
 | 数据库 | 最低版本 |
 |--------|----------|
 | MySQL | 5.7+ |
 | PostgreSQL | 10+ |
 | Oracle | 12c+ |
+| MongoDB | 4.0+ |
 
 ---
 
-### Q10: 如何迁移视图
+### Q11: MongoDB 无认证连接
+
+MongoDB 支持无认证模式，配置文件中 `username` 和 `password` 留空即可：
+```yaml
+target:
+  type: MONGODB
+  host: "127.0.0.1"
+  port: 27017
+  database: "target_db"
+  username: ""
+  password: ""
+```
+
+---
+
+### Q12: MongoDB 嵌套文档如何处理
+
+MongoDB 文档中的嵌套对象和数组会自动序列化为 JSON 字符串存储到目标数据库。如需保留结构化数据，建议迁移到支持 JSON 类型的数据库（如 PostgreSQL 的 jsonb 类型）。
+
+---
+
+### Q13: 如何迁移视图
 
 目前版本只迁移表（BASE TABLE），不迁移视图。后续版本会添加视图支持。
 
@@ -718,6 +898,16 @@ target:
 ---
 
 ## 更新日志
+
+### v1.3.0 (2026-09-19)
+- 新增 MongoDB 数据库支持
+- 支持 MySQL/PostgreSQL/Oracle → MongoDB 迁移
+- 支持 MongoDB → MySQL/PostgreSQL/Oracle 迁移
+- 支持 MongoDB → MongoDB 迁移
+- 自动采样文档推断 schema
+- 嵌套对象和数组自动序列化为 JSON 字符串
+- MongoDB 类型自动映射到目标数据库类型
+- 支持 MongoDB 无认证连接
 
 ### v1.2.0 (2026-09-08)
 - 新增 Oracle 数据库支持
