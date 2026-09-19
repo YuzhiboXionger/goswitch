@@ -43,7 +43,8 @@ func (c *Config) Validate() error {
 	if c.Source.Database == "" {
 		return fmt.Errorf("source.database is required")
 	}
-	if c.Source.Username == "" {
+	// MongoDB 支持无认证模式，不要求 username
+	if c.Source.Type != "MONGODB" && c.Source.Username == "" {
 		return fmt.Errorf("source.username is required")
 	}
 
@@ -57,7 +58,8 @@ func (c *Config) Validate() error {
 	if c.Target.Database == "" {
 		return fmt.Errorf("target.database is required")
 	}
-	if c.Target.Username == "" {
+	// MongoDB 支持无认证模式，不要求 username
+	if c.Target.Type != "MONGODB" && c.Target.Username == "" {
 		return fmt.Errorf("target.username is required")
 	}
 
@@ -75,6 +77,15 @@ func (c *Config) GetSourceDSN() string {
 		// 密码需要 URL 编码以处理特殊字符（如 #、@、:）
 		return fmt.Sprintf("oracle://%s:%s@%s:%d/%s",
 			url.QueryEscape(c.Source.Username), url.QueryEscape(c.Source.Password),
+			c.Source.Host, c.Source.Port, c.Source.Database)
+	case "MONGODB":
+		// MongoDB 连接 URI
+		if c.Source.Username != "" && c.Source.Password != "" {
+			return fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+				url.QueryEscape(c.Source.Username), url.QueryEscape(c.Source.Password),
+				c.Source.Host, c.Source.Port, c.Source.Database)
+		}
+		return fmt.Sprintf("mongodb://%s:%d/%s",
 			c.Source.Host, c.Source.Port, c.Source.Database)
 	default:
 		// MySQL
@@ -94,6 +105,15 @@ func (c *Config) GetTargetDSN() string {
 		// 密码需要 URL 编码以处理特殊字符（如 #、@、:）
 		return fmt.Sprintf("oracle://%s:%s@%s:%d/%s",
 			url.QueryEscape(c.Target.Username), url.QueryEscape(c.Target.Password),
+			c.Target.Host, c.Target.Port, c.Target.Database)
+	case "MONGODB":
+		// MongoDB 连接 URI
+		if c.Target.Username != "" && c.Target.Password != "" {
+			return fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+				url.QueryEscape(c.Target.Username), url.QueryEscape(c.Target.Password),
+				c.Target.Host, c.Target.Port, c.Target.Database)
+		}
+		return fmt.Sprintf("mongodb://%s:%d/%s",
 			c.Target.Host, c.Target.Port, c.Target.Database)
 	default:
 		// MySQL

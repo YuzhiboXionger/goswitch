@@ -1,38 +1,39 @@
-package oracle
+package mongodb
 
 import (
-	"database/sql"
 	"goswitch/internal/core"
 	"goswitch/pkg/database"
+
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 func init() {
 	core.Register(&Factory{})
 }
 
-// Factory Oracle 方言工厂
+// Factory MongoDB 方言工厂
 type Factory struct{}
 
 func (f *Factory) Type() database.DBType {
-	return database.Oracle
+	return database.MongoDB
 }
 
 func (f *Factory) MetadataProvider(conn interface{}) core.MetadataProvider {
-	db := conn.(*sql.DB)
-	return &Metadata{db: db}
+	client := conn.(*mongo.Client)
+	return &Metadata{client: client}
 }
 
 func (f *Factory) DataReader(conn interface{}) core.DataReader {
-	db := conn.(*sql.DB)
-	return &Reader{db: db}
+	client := conn.(*mongo.Client)
+	return &Reader{client: client}
 }
 
 func (f *Factory) DataWriter(conn interface{}) core.DataWriter {
-	db := conn.(*sql.DB)
-	return &Writer{db: db}
+	client := conn.(*mongo.Client)
+	return &Writer{client: client}
 }
 
 func (f *Factory) TableManager(conn interface{}) core.TableManager {
-	db := conn.(*sql.DB)
-	return &Manager{db: db}
+	client := conn.(*mongo.Client)
+	return &Manager{client: client}
 }

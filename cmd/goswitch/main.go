@@ -16,21 +16,24 @@ import (
 	_ "github.com/lib/pq"              // PostgreSQL 驱动
 	_ "github.com/sijms/go-ora/v2"     // Oracle 驱动
 	"github.com/spf13/cobra"           // Cobra 命令行框架
+	"go.mongodb.org/mongo-driver/v2/mongo" // MongoDB 驱动
+	"go.mongodb.org/mongo-driver/v2/mongo/options" // MongoDB 选项
 
 	// 导入数据库方言，触发 init() 注册
 	_ "goswitch/internal/product/mysql"      // MySQL 产品实现
 	_ "goswitch/internal/product/postgresql" // PostgreSQL 产品实现
 	_ "goswitch/internal/product/oracle"     // Oracle 产品实现
+	_ "goswitch/internal/product/mongodb"    // MongoDB 产品实现
 )
 
 // Version 版本号
-const Version = "1.2.0"
+const Version = "1.3.0"
 
 // rootCmd 定义根命令，这是 CLI 工具的顶级命令
 var rootCmd = &cobra.Command{
 	Use:   "goswitch",                    // 命令名称
 	Short: "goswitch - 异构数据库迁移工具", // 简短描述，显示在帮助列表中
-	Long:  "goswitch 是一个轻量级的数据库迁移工具，支持 MySQL、PostgreSQL 和 Oracle 数据库的全量迁移，包括 MySQL/PostgreSQL/Oracle 之间的任意组合迁移。", // 详细描述，显示在 --help 中
+	Long:  "goswitch 是一个轻量级的数据库迁移工具，支持 MySQL、PostgreSQL、Oracle 和 MongoDB 数据库的全量迁移。", // 详细描述，显示在 --help 中
 }
 
 // versionCmd 定义 version 子命令，用于显示版本信息
@@ -93,6 +96,25 @@ func getDriverName(dbType database.DBType) string {
 	}
 }
 
+// isMongoDB 判断数据库类型是否为 MongoDB
+func isMongoDB(dbType database.DBType) bool {
+	return dbType == database.MongoDB
+}
+
+// connectMongoDB 连接 MongoDB 数据库
+func connectMongoDB(ctx context.Context, dsn string) (*mongo.Client, error) {
+	clientOpts := options.Client().ApplyURI(dsn)
+	client, err := mongo.Connect(clientOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect MongoDB: %w", err)
+	}
+	// Ping 验证连接
+	if err := client.Ping(ctx, nil); err != nil {
+		return nil, fmt.Errorf("failed to ping MongoDB: %w", err)
+	}
+	return client, nil
+}
+
 // runMigration 是 run 命令的实际执行函数，负责整个迁移流程
 func runMigration(cmd *cobra.Command, args []string) error {
 	// 1. 初始化日志
@@ -105,82 +127,93 @@ func runMigration(cmd *cobra.Command, args []string) error {
 	}
 
 	// 2. 加载配置文件
-	// 从指定路径读取 YAML 配置文件并解析为 Config 结构体
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		// 加载失败时返回包装后的错误信息
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// 3. 连接源端数据库
-	// 根据源端数据库类型选择对应的驱动
-	srcDB, err := sql.Open(getDriverName(cfg.Source.Type), cfg.GetSourceDSN())
-	if err != nil {
-		return fmt.Errorf("failed to connect source database: %w", err)
-	}
-	// defer 确保函数退出时关闭数据库连接，释放资源
-	defer srcDB.Close()
+	ctx := context.Background()
 
-	// Ping 验证数据库连接是否可用
-	if err := srcDB.Ping(); err != nil {
-		return fmt.Errorf("failed to ping source database: %w", err)
+	// 3. 连接源端数据库
+	var srcConn interface{}
+	if isMongoDB(cfg.Source.Type) {
+		// MongoDB 连接
+		client, err := connectMongoDB(ctx, cfg.GetSourceDSN())
+		if err != nil {
+			return fmt.Errorf("failed to connect source MongoDB: %w", err)
+		}
+		defer client.Disconnect(ctx)
+		srcConn = client
+		fmt.Println("✓ 源端 MongoDB 连接成功")
+		util.LogInfo("源端 MongoDB 连接成功: %s:%d/%s", cfg.Source.Host, cfg.Source.Port, cfg.Source.Database)
+	} else {
+		// SQL 数据库连接
+		srcDB, err := sql.Open(getDriverName(cfg.Source.Type), cfg.GetSourceDSN())
+		if err != nil {
+			return fmt.Errorf("failed to connect source database: %w", err)
+		}
+		defer srcDB.Close()
+		if err := srcDB.Ping(); err != nil {
+			return fmt.Errorf("failed to ping source database: %w", err)
+		}
+		srcDB.SetMaxOpenConns(10)
+		srcDB.SetMaxIdleConns(5)
+		srcDB.SetConnMaxLifetime(0)
+		srcConn = srcDB
+		fmt.Println("✓ 源端数据库连接成功")
+		util.LogInfo("源端数据库连接成功: %s@%s:%d/%s", cfg.Source.Username, cfg.Source.Host, cfg.Source.Port, cfg.Source.Database)
 	}
-	// 源端连接池配置
-	srcDB.SetMaxOpenConns(10)    // 最大打开连接数
-	srcDB.SetMaxIdleConns(5)     // 最大空闲连接数
-	srcDB.SetConnMaxLifetime(0)  // 连接最大生命周期，0 表示不限制
-	fmt.Println("✓ 源端数据库连接成功")
-	util.LogInfo("源端数据库连接成功: %s@%s:%d/%s", cfg.Source.Username, cfg.Source.Host, cfg.Source.Port, cfg.Source.Database)
 
 	// 4. 连接目标端数据库
-	// 根据目标端数据库类型选择对应的驱动
-	dstDB, err := sql.Open(getDriverName(cfg.Target.Type), cfg.GetTargetDSN())
-	if err != nil {
-		return fmt.Errorf("failed to connect target database: %w", err)
+	var dstConn interface{}
+	if isMongoDB(cfg.Target.Type) {
+		// MongoDB 连接
+		client, err := connectMongoDB(ctx, cfg.GetTargetDSN())
+		if err != nil {
+			return fmt.Errorf("failed to connect target MongoDB: %w", err)
+		}
+		defer client.Disconnect(ctx)
+		dstConn = client
+		fmt.Println("✓ 目标端 MongoDB 连接成功")
+		util.LogInfo("目标端 MongoDB 连接成功: %s:%d/%s", cfg.Target.Host, cfg.Target.Port, cfg.Target.Database)
+	} else {
+		// SQL 数据库连接
+		dstDB, err := sql.Open(getDriverName(cfg.Target.Type), cfg.GetTargetDSN())
+		if err != nil {
+			return fmt.Errorf("failed to connect target database: %w", err)
+		}
+		defer dstDB.Close()
+		if err := dstDB.Ping(); err != nil {
+			return fmt.Errorf("failed to ping target database: %w", err)
+		}
+		dstDB.SetMaxOpenConns(cfg.Target.Parallel * 2)
+		dstDB.SetMaxIdleConns(cfg.Target.Parallel)
+		dstDB.SetConnMaxLifetime(0)
+		dstConn = dstDB
+		fmt.Println("✓ 目标端数据库连接成功")
+		util.LogInfo("目标端数据库连接成功: %s@%s:%d/%s", cfg.Target.Username, cfg.Target.Host, cfg.Target.Port, cfg.Target.Database)
 	}
-	// defer 确保函数退出时关闭数据库连接
-	defer dstDB.Close()
-
-	// Ping 验证目标端数据库连接是否可用
-	if err := dstDB.Ping(); err != nil {
-		return fmt.Errorf("failed to ping target database: %w", err)
-	}
-	// 目标端连接池配置（根据并行度调整）
-	dstDB.SetMaxOpenConns(cfg.Target.Parallel * 2) // 最大连接数为并行度的 2 倍
-	dstDB.SetMaxIdleConns(cfg.Target.Parallel)      // 最大空闲连接数等于并行度
-	dstDB.SetConnMaxLifetime(0)                      // 连接最大生命周期，0 表示不限制
-	fmt.Println("✓ 目标端数据库连接成功")
-	util.LogInfo("目标端数据库连接成功: %s@%s:%d/%s", cfg.Target.Username, cfg.Target.Host, cfg.Target.Port, cfg.Target.Database)
 
 	// 5. 创建迁移服务实例
-	// 传入配置和两个数据库连接，创建 MigrationService
-	migration, err := service.NewMigrationService(cfg, srcDB, dstDB)
+	migration, err := service.NewMigrationService(cfg, srcConn, dstConn)
 	if err != nil {
 		return fmt.Errorf("failed to create migration service: %w", err)
 	}
 
 	// 6. 处理信号，支持优雅退出
-	// 创建可取消的上下文，用于控制迁移任务的生命周期
-	ctx, cancel := context.WithCancel(context.Background())
-	// defer 确保函数退出时取消上下文，通知所有子协程停止
+	migrationCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 创建信号通道，缓冲大小为 1
 	sigCh := make(chan os.Signal, 1)
-	// 注册要监听的信号：Ctrl+C (SIGINT) 和 kill 命令 (SIGTERM)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// 启动协程监听系统信号
 	go func() {
-		// 阻塞等待信号
 		sig := <-sigCh
 		fmt.Printf("\n收到信号 %v，正在停止...\n", sig)
 		util.LogWarn("收到信号 %v，正在停止...", sig)
-		// 收到信号后取消上下文，触发迁移任务停止
 		cancel()
 	}()
 
 	// 7. 执行迁移任务
-	// 传入上下文，支持中途取消；返回迁移结果或错误
-	return migration.Run(ctx)
+	return migration.Run(migrationCtx)
 }

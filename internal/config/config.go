@@ -59,6 +59,8 @@ func (c *Config) SetDefaults() {
 			c.Source.Port = 5432
 		case "ORACLE":
 			c.Source.Port = 1521
+		case "MONGODB":
+			c.Source.Port = 27017
 		default:
 			c.Source.Port = 3306
 		}
@@ -69,6 +71,8 @@ func (c *Config) SetDefaults() {
 			c.Target.Port = 5432
 		case "ORACLE":
 			c.Target.Port = 1521
+		case "MONGODB":
+			c.Target.Port = 27017
 		default:
 			c.Target.Port = 3306
 		}

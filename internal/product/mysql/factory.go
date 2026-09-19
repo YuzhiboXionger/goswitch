@@ -17,18 +17,22 @@ func (f *Factory) Type() database.DBType {
 	return database.MySQL
 }
 
-func (f *Factory) MetadataProvider(db *sql.DB) core.MetadataProvider {
+func (f *Factory) MetadataProvider(conn interface{}) core.MetadataProvider {
+	db := conn.(*sql.DB)
 	return &Metadata{db: db}
 }
 
-func (f *Factory) DataReader(db *sql.DB) core.DataReader {
+func (f *Factory) DataReader(conn interface{}) core.DataReader {
+	db := conn.(*sql.DB)
 	return &Reader{db: db}
 }
 
-func (f *Factory) DataWriter(db *sql.DB) core.DataWriter {
+func (f *Factory) DataWriter(conn interface{}) core.DataWriter {
+	db := conn.(*sql.DB)
 	return &Writer{db: db}
 }
 
-func (f *Factory) TableManager(db *sql.DB) core.TableManager {
+func (f *Factory) TableManager(conn interface{}) core.TableManager {
+	db := conn.(*sql.DB)
 	return &Manager{db: db}
 }

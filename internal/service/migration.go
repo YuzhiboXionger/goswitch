@@ -14,6 +14,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // Version 版本号
@@ -31,8 +34,8 @@ type MigrationResult struct {
 // MigrationService 迁移服务
 type MigrationService struct {
 	config     *config.Config
-	srcDB      *sql.DB
-	dstDB      *sql.DB
+	srcDB      interface{}
+	dstDB      interface{}
 	srcMeta    core.MetadataProvider
 	srcReader  core.DataReader
 	dstMeta    core.MetadataProvider  // 目标端元数据提供者
@@ -41,7 +44,7 @@ type MigrationService struct {
 }
 
 // NewMigrationService 创建迁移服务
-func NewMigrationService(cfg *config.Config, srcDB, dstDB *sql.DB) (*MigrationService, error) {
+func NewMigrationService(cfg *config.Config, srcDB, dstDB interface{}) (*MigrationService, error) {
 	// 获取方言工厂
 	srcFactory, err := core.GetFactory(cfg.Source.Type)
 	if err != nil {
@@ -466,17 +469,30 @@ func (s *MigrationService) printTablePreview(tables []string) {
 			continue
 		}
 
-		// 获取数据量（使用 COUNT(*)）
+		// 获取数据量
 		var rowCount int64
-		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`", table)
-		err = s.srcDB.QueryRow(countQuery).Scan(&rowCount)
-		if err != nil {
-			// 尝试使用 PostgreSQL 语法
-			countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM "%s"`, table)
-			err = s.srcDB.QueryRow(countQuery).Scan(&rowCount)
+		switch db := s.srcDB.(type) {
+		case *sql.DB:
+			countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`", table)
+			err = db.QueryRow(countQuery).Scan(&rowCount)
+			if err != nil {
+				// 尝试使用 PostgreSQL 语法
+				countQuery = fmt.Sprintf(`SELECT COUNT(*) FROM "%s"`, table)
+				err = db.QueryRow(countQuery).Scan(&rowCount)
+				if err != nil {
+					rowCount = -1
+				}
+			}
+		case *mongo.Client:
+			coll := db.Database(s.config.Source.Database).Collection(table)
+			count, err := coll.CountDocuments(context.Background(), bson.M{})
 			if err != nil {
 				rowCount = -1
+			} else {
+				rowCount = count
 			}
+		default:
+			rowCount = -1
 		}
 
 		// 格式化数据量

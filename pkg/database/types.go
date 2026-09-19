@@ -9,6 +9,7 @@ const (
 	MySQL      DBType = "MYSQL"
 	PostgreSQL DBType = "POSTGRESQL"
 	Oracle     DBType = "ORACLE"
+	MongoDB    DBType = "MONGODB"
 )
 
 // ProductInfo 数据库产品元信息
@@ -24,6 +25,7 @@ var Products = map[DBType]ProductInfo{
 	MySQL:      {Type: MySQL, Name: "MySQL", QuoteChar: '`', DefaultPort: 3306},
 	PostgreSQL: {Type: PostgreSQL, Name: "PostgreSQL", QuoteChar: '"', DefaultPort: 5432},
 	Oracle:     {Type: Oracle, Name: "Oracle", QuoteChar: '"', DefaultPort: 1521},
+	MongoDB:    {Type: MongoDB, Name: "MongoDB", QuoteChar: 0, DefaultPort: 27017},
 }
 
 // GetProduct 获取数据库产品信息

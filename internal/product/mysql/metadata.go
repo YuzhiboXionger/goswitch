@@ -232,6 +232,18 @@ func (m *Metadata) getFieldDefinition(col core.ColumnMeta) string {
 	case "json", "jsonb":
 		return "json"
 
+	// MongoDB 类型
+	case "objectid":
+		return "varchar(24)"
+	case "document", "array":
+		return "json"
+	case "long":
+		return "bigint"
+	case "decimal128":
+		return "decimal(38,9)"
+	case "null":
+		return "text"
+
 	default:
 		// 未知类型尝试直接使用
 		return col.DataType

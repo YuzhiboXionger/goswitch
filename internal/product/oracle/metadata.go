@@ -242,6 +242,18 @@ func (m *Metadata) getFieldDefinition(col core.ColumnMeta) string {
 	case "blob", "tinyblob", "mediumblob", "longblob", "binary", "varbinary", "bytea", "raw":
 		return "BLOB"
 
+	// MongoDB 类型
+	case "objectid":
+		return "VARCHAR2(24)"
+	case "document", "array":
+		return "CLOB"
+	case "long":
+		return "NUMBER(19)"
+	case "decimal128":
+		return "NUMBER(38,9)"
+	case "null":
+		return "VARCHAR2(4000)"
+
 	default:
 		// 未知类型尝试直接使用
 		return strings.ToUpper(col.DataType)

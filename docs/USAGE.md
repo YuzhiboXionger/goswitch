@@ -36,7 +36,7 @@ goswitch.exe run -c config.yml
 ./goswitch run -c config.yml
 
 # 输出到日志文件
-./goswitch run -c config.yml -l migration.log
+./goswitch run -c config.yml -l migration.log # 同时获得日志和失败表的报告
 ```
 
 ---
@@ -67,7 +67,7 @@ go mod tidy
 go build -o goswitch.exe ./cmd/goswitch/
 
 # 4. 交叉编译 Linux 版本
-GOOS=linux GOARCH=amd64 go build -o goswitch ./cmd/goswitch/
+$env:GOOS="linux"; $env:GOARCH="amd64"; go build -o goswitch ./cmd/goswitch/
 ```
 
 ---

@@ -254,6 +254,20 @@ func (m *Metadata) getFieldDefinition(col core.ColumnMeta) string {
 	case "uuid":
 		return "uuid"
 
+	// MongoDB 类型
+	case "objectid":
+		return "varchar(24)"
+	case "document":
+		return "jsonb"
+	case "array":
+		return "jsonb"
+	case "long":
+		return "bigint"
+	case "decimal128":
+		return "numeric"
+	case "null":
+		return "text"
+
 	default:
 		// 未知类型尝试直接使用
 		return col.DataType

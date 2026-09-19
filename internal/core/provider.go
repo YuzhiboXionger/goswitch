@@ -1,7 +1,6 @@
 package core
 
 import (
-	"database/sql"
 	"fmt"
 	"goswitch/pkg/database"
 )
@@ -13,16 +12,20 @@ type Factory interface {
 	Type() database.DBType
 
 	// MetadataProvider 创建元数据查询提供者
-	MetadataProvider(db *sql.DB) MetadataProvider
+	// conn 参数: SQL 数据库为 *sql.DB, MongoDB 为 *mongo.Client
+	MetadataProvider(conn interface{}) MetadataProvider
 
 	// DataReader 创建数据读取提供者
-	DataReader(db *sql.DB) DataReader
+	// conn 参数: SQL 数据库为 *sql.DB, MongoDB 为 *mongo.Client
+	DataReader(conn interface{}) DataReader
 
 	// DataWriter 创建数据写入提供者
-	DataWriter(db *sql.DB) DataWriter
+	// conn 参数: SQL 数据库为 *sql.DB, MongoDB 为 *mongo.Client
+	DataWriter(conn interface{}) DataWriter
 
 	// TableManager 创建表管理提供者
-	TableManager(db *sql.DB) TableManager
+	// conn 参数: SQL 数据库为 *sql.DB, MongoDB 为 *mongo.Client
+	TableManager(conn interface{}) TableManager
 }
 
 // 全局注册中心
